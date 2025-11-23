@@ -1,0 +1,143 @@
+"""
+Test script for music_handler.py
+Tests YouTube and Spotify functionality independently
+"""
+
+from music_handler import MusicHandler
+import json
+
+def print_song(song, label="Song"):
+    """Pretty print song info"""
+    if song:
+        print(f"\n{'='*50}")
+        print(f"{label}:")
+        print(f"{'='*50}")
+        print(f"Title: {song.get('title')}")
+        print(f"Duration: {song.get('duration')} seconds")
+        print(f"Source: {song.get('source')}")
+        print(f"Stream URL: {song.get('url')[:50]}...")
+        print(f"Webpage URL: {song.get('webpage_url')}")
+        if song.get('original_title'):
+            print(f"Original (Spotify): {song.get('original_title')}")
+        print(f"{'='*50}\n")
+    else:
+        print(f"\n❌ Failed to get {label}\n")
+
+def test_youtube():
+    """Test YouTube functionality"""
+    print("\n" + "🎵 TESTING YOUTUBE FUNCTIONALITY " + "="*30)
+    
+    handler = MusicHandler()
+    
+    # Test 1: Direct YouTube URL
+    print("\n📺 Test 1: Direct YouTube URL")
+    youtube_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    song = handler.get_song(youtube_url)
+    print_song(song, "Direct YouTube URL")
+    
+    # Test 2: YouTube search
+    print("\n🔍 Test 2: YouTube Search")
+    search_url = "ytsearch:never gonna give you up"
+    song = handler.get_song(search_url)
+    print_song(song, "YouTube Search Result")
+    
+    # Test 3: Verify song format
+    if song:
+        print("\n✅ Checking song format...")
+        required_keys = ['title', 'url', 'duration', 'source', 'webpage_url']
+        for key in required_keys:
+            if key in song:
+                print(f"  ✓ {key}: Present")
+            else:
+                print(f"  ✗ {key}: MISSING!")
+        
+        # Check if thumbnail is present (optional)
+        if 'thumbnail' in song:
+            print(f"  ✓ thumbnail: Present (optional)")
+
+def test_spotify():
+    """Test Spotify functionality"""
+    print("\n" + "🎵 TESTING SPOTIFY FUNCTIONALITY " + "="*30)
+    
+    handler = MusicHandler()
+    
+    if not handler.spotify:
+        print("\n⚠️  Spotify not configured. Skipping Spotify tests.")
+        print("To enable Spotify:")
+        print("1. Go to https://developer.spotify.com/dashboard")
+        print("2. Create an app")
+        print("3. Add credentials to .env file:")
+        print("   SPOTIFY_CLIENT_ID=your_id")
+        print("   SPOTIFY_CLIENT_SECRET=your_secret")
+        return
+    
+    # Test 4: Spotify track
+    print("\n🎧 Test 4: Spotify Track")
+    spotify_url = "https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT"
+    song = handler.get_song(spotify_url)
+    print_song(song, "Spotify Track (converted to YouTube)")
+    
+    # Test 5: Verify it's marked as Spotify source
+    if song:
+        if song.get('source') == 'spotify':
+            print("✅ Correctly marked as Spotify source")
+        else:
+            print(f"❌ Wrong source: {song.get('source')}")
+
+def test_playlists():
+    """Test playlist functionality"""
+    print("\n" + "🎵 TESTING PLAYLIST FUNCTIONALITY " + "="*30)
+    
+    handler = MusicHandler()
+    
+    # You'll need to replace these with actual playlist URLs for testing
+    print("\n📋 To test playlists, uncomment and add real URLs:")
+    print("# YouTube Playlist:")
+    print("# yt_playlist = 'https://www.youtube.com/playlist?list=YOUR_PLAYLIST_ID'")
+    print("# songs = handler.get_playlist(yt_playlist)")
+    print("# print(f'Got {len(songs)} songs from YouTube playlist')")
+    print()
+    print("# Spotify Playlist (if configured):")
+    print("# spotify_playlist = 'https://open.spotify.com/playlist/YOUR_PLAYLIST_ID'")
+    print("# songs = handler.get_playlist(spotify_playlist)")
+    print("# print(f'Got {len(songs)} songs from Spotify playlist')")
+
+def test_error_handling():
+    """Test error handling"""
+    print("\n" + "🎵 TESTING ERROR HANDLING " + "="*30)
+    
+    handler = MusicHandler()
+    
+    # Test invalid URL
+    print("\n❌ Test: Invalid URL")
+    bad_url = "https://invalid-url.com/notavideo"
+    song = handler.get_song(bad_url)
+    if song is None:
+        print("✅ Correctly returned None for invalid URL")
+    else:
+        print("❌ Should have returned None")
+
+def main():
+    """Run all tests"""
+    print("\n" + "="*80)
+    print("🎵 MUSIC HANDLER TEST SUITE")
+    print("="*80)
+    
+    # Run tests
+    test_youtube()
+    test_spotify()
+    test_playlists()
+    test_error_handling()
+    
+    print("\n" + "="*80)
+    print("✅ TESTS COMPLETE")
+    print("="*80)
+    print("\nNext steps:")
+    print("1. Verify YouTube tests passed")
+    print("2. Configure Spotify if needed")
+    print("3. Share this music_handler.py with Person 2")
+    print("4. Coordinate on the song data format")
+    print("\n")
+
+if __name__ == '__main__':
+    main()
