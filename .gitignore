@@ -1,0 +1,178 @@
+# Discord Music Bot - .gitignore
+
+# ============================================
+# CRITICAL - Never commit these!
+# ============================================
+
+# Environment variables (contains API keys and tokens!)
+.env
+.env.local
+.env.*.local
+
+# ============================================
+# Python
+# ============================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# pyenv
+.python-version
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# ============================================
+# IDEs and Editors
+# ============================================
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# ============================================
+# Operating Systems
+# ============================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+
+# ============================================
+# Bot-Specific
+# ============================================
+
+# Downloaded music files (if any)
+downloads/
+temp/
+cache/
+
+# Logs
+*.log
+logs/
+
+# Database files (if you add persistence later)
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.bak
+*.backup
+
+# ============================================
+# Development
+# ============================================
+
+# Test files
+test_*.py.bak
+*_test_output.txt
+
+# Local configuration overrides
+config.local.json
+settings.local.json
+
+# ============================================
+# Optional: Uncomment if needed
+# ============================================
+
+# If you use poetry
+# poetry.lock
+
+# If you use pipenv
+# Pipfile.lock
+
+# If you create documentation
+# docs/_build/
+
+# ============================================
+# Keep these files!
+# ============================================
+
+# Make sure these are NOT ignored:
+# !bot.py
+# !music_handler.py
+# !music_queue.py
+# !cogs/music_cog.py
+# !requirements.txt
+# !.env.example
+# !README.md
