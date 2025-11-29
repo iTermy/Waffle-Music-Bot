@@ -2,49 +2,56 @@ import discord
 from discord.ext import commands
 import asyncio
 from music_handler import MusicHandler
-from music_queue import MusicQueue
+from music_queue import MusicQueue, LoopMode
 
 class MusicCog(commands.Cog):
-    """Music commands cog"""
-    
     def __init__(self, bot):
         self.bot = bot
         self.music_handler = MusicHandler()
         self.queue = MusicQueue()
         self.current_voice_client = None
     
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member, before, after):
+        if member == self.bot.user and before.channel and not after.channel:
+            self._cleanup_queue()
+    
+    def _cleanup_queue(self):
+        self.queue.clear()
+        self.current_voice_client = None
+    
     @commands.command()
     async def join(self, ctx):
-        """Join your voice channel"""
         if ctx.author.voice:
             channel = ctx.author.voice.channel
             
-            # If already in a voice channel, move to new one
+            if not ctx.voice_client and self.current_voice_client:
+                self._cleanup_queue()
+            
             if ctx.voice_client:
                 await ctx.voice_client.move_to(channel)
             else:
                 await channel.connect()
             
+            self.current_voice_client = ctx.voice_client
             await ctx.send(f"🔊 Joined **{channel.name}**")
         else:
             await ctx.send("❌ You're not in a voice channel!")
     
     @commands.command()
     async def leave(self, ctx):
-        """Leave voice channel"""
         if ctx.voice_client:
+            self._cleanup_queue()
             await ctx.voice_client.disconnect()
-            await ctx.send("👋 Left voice channel")
+            await ctx.send("👋 Left voice channel (queue cleared)")
         else:
             await ctx.send("❌ I'm not in a voice channel!")
     
     @commands.command()
     async def add(self, ctx, *, url: str):
-        """Add a song to the queue"""
         await ctx.send("🔍 Adding song...")
         
         try:
-            # Check if it's a playlist
             if 'playlist' in url or 'list=' in url:
                 songs = self.music_handler.get_playlist(url)
                 if songs:
@@ -53,7 +60,6 @@ class MusicCog(commands.Cog):
                 else:
                     await ctx.send("❌ Could not load playlist")
             else:
-                # Single song
                 song = self.music_handler.get_song(url)
                 if song:
                     self.queue.add(song)
@@ -66,32 +72,32 @@ class MusicCog(commands.Cog):
     
     @commands.command()
     async def play(self, ctx):
-        """Start playing the queue"""
-        # Join voice if not already in
         if not ctx.voice_client:
             if ctx.author.voice:
                 await ctx.author.voice.channel.connect()
+                self.current_voice_client = ctx.voice_client
             else:
                 await ctx.send("❌ You need to be in a voice channel!")
                 return
         
-        # Check if queue is empty
         if self.queue.is_empty():
-            await ctx.send("❌ Queue is empty! Add songs with `!add <url>`")
+            await ctx.send("❌ Queue is empty! Add songs with `[add <url>`")
             return
         
-        # Start playing
         await self._play_song(ctx)
     
     async def _play_song(self, ctx):
-        """Internal method to play current song"""
+        if not ctx.voice_client or not ctx.voice_client.is_connected():
+            await ctx.send("❌ Bot is not in voice channel anymore")
+            self._cleanup_queue()
+            return
+        
         song = self.queue.get_current()
         
         if not song:
             await ctx.send("✅ Queue finished!")
             return
         
-        # Get fresh URL (in case it expired)
         if 'webpage_url' in song:
             try:
                 song = self.music_handler.get_song(song['webpage_url'])
@@ -106,7 +112,6 @@ class MusicCog(commands.Cog):
                 await self._play_song(ctx)
                 return
         
-        # Create audio source
         ffmpeg_options = {
             'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
             'options': '-vn'
@@ -120,12 +125,10 @@ class MusicCog(commands.Cog):
             await self._play_song(ctx)
             return
         
-        # Play with callback for when song ends
         def after_playing(error):
             if error:
                 print(f"Playback error: {error}")
             
-            # Move to next song
             coro = self._after_song(ctx)
             fut = asyncio.run_coroutine_threadsafe(coro, self.bot.loop)
             try:
@@ -135,7 +138,6 @@ class MusicCog(commands.Cog):
         
         ctx.voice_client.play(audio_source, after=after_playing)
         
-        # Send now playing message
         embed = discord.Embed(
             title="🎵 Now Playing",
             description=f"**{song['title']}**",
@@ -150,20 +152,37 @@ class MusicCog(commands.Cog):
         if song.get('thumbnail'):
             embed.set_thumbnail(url=song['thumbnail'])
         
+        loop_mode = self.queue.get_loop_mode()
+        if loop_mode == LoopMode.SINGLE:
+            embed.set_footer(text="🔂 Loop: Single")
+        elif loop_mode == LoopMode.ALL:
+            embed.set_footer(text="🔁 Loop: All")
+        
         await ctx.send(embed=embed)
     
     async def _after_song(self, ctx):
-        """Called after a song finishes"""
-        # Check if there's a next song
-        if self.queue.has_next():
-            self.queue.next()
+        if not ctx.voice_client or not ctx.voice_client.is_connected():
+            self._cleanup_queue()
+            return
+        
+        loop_mode = self.queue.get_loop_mode()
+        
+        if loop_mode == LoopMode.SINGLE:
+            await self._play_song(ctx)
+        elif loop_mode == LoopMode.ALL:
+            current_song = self.queue.songs.pop(self.queue.current_index)
+            self.queue.songs.append(current_song)
             await self._play_song(ctx)
         else:
-            await ctx.send("✅ Queue finished!")
+            self.queue.songs.pop(self.queue.current_index)
+            
+            if self.queue.current_index < len(self.queue.songs):
+                await self._play_song(ctx)
+            else:
+                await ctx.send("✅ Queue finished!")
     
     @commands.command()
     async def pause(self, ctx):
-        """Pause playback"""
         if ctx.voice_client and ctx.voice_client.is_playing():
             ctx.voice_client.pause()
             await ctx.send("⏸️ Paused")
@@ -172,7 +191,6 @@ class MusicCog(commands.Cog):
     
     @commands.command()
     async def resume(self, ctx):
-        """Resume playback"""
         if ctx.voice_client and ctx.voice_client.is_paused():
             ctx.voice_client.resume()
             await ctx.send("▶️ Resumed")
@@ -181,44 +199,53 @@ class MusicCog(commands.Cog):
     
     @commands.command()
     async def skip(self, ctx):
-        """Skip current song"""
         if ctx.voice_client and ctx.voice_client.is_playing():
-            ctx.voice_client.stop()  # This triggers after_playing callback
-            await ctx.send("⏭️ Skipped")
+            loop_mode = self.queue.get_loop_mode()
+            ctx.voice_client.stop()
+            
+            if loop_mode == LoopMode.SINGLE:
+                await ctx.send("⏭️ Skipped (song will repeat due to loop single)")
+            elif loop_mode == LoopMode.ALL:
+                await ctx.send("⏭️ Skipped (song moved to end of queue)")
+            else:
+                await ctx.send("⏭️ Skipped")
         else:
             await ctx.send("❌ Nothing is playing!")
     
     @commands.command()
     async def queue(self, ctx):
-        """Show current queue"""
         if self.queue.is_empty():
             await ctx.send("❌ Queue is empty!")
             return
         
         current_idx, total = self.queue.get_position()
-        songs = self.queue.get_all()
+        all_songs = self.queue.get_all()
         
-        # Build embed
         embed = discord.Embed(
             title="🎵 Music Queue",
             color=discord.Color.blue()
         )
         
-        # Show current song
-        if current_idx < len(songs):
-            current = songs[current_idx]
+        if current_idx < len(all_songs):
+            current_song = all_songs[current_idx]
             embed.add_field(
                 name="▶️ Now Playing",
-                value=f"**{current['title']}**",
+                value=f"**{current_song['title']}** (Position #{current_idx + 1})",
                 inline=False
             )
         
-        # Show next songs (max 10)
-        next_songs = songs[current_idx + 1:current_idx + 11]
+        next_songs = []
+        next_positions = []
+        
+        start_idx = current_idx + 1
+        for i in range(start_idx, min(start_idx + 10, len(all_songs))):
+            next_songs.append(all_songs[i])
+            next_positions.append(i + 1)
+        
         if next_songs:
             queue_text = ""
-            for i, song in enumerate(next_songs, start=1):
-                queue_text += f"{current_idx + i + 1}. {song['title']}\n"
+            for pos, song in zip(next_positions, next_songs):
+                queue_text += f"**{pos}.** {song['title']}\n"
             
             embed.add_field(
                 name="⏭️ Up Next",
@@ -226,32 +253,37 @@ class MusicCog(commands.Cog):
                 inline=False
             )
         
-        # Footer info
-        remaining = total - current_idx - 1
-        if remaining > 10:
-            embed.set_footer(text=f"... and {remaining - 10} more songs")
+        footer_parts = []
         
-        if self.queue.loop_enabled:
-            embed.set_footer(text=f"{embed.footer.text if embed.footer else ''} | 🔁 Loop: ON")
+        remaining = total - (current_idx + 1)
+        if remaining > 10:
+            footer_parts.append(f"... and {remaining - 10} more songs")
+        
+        loop_mode = self.queue.get_loop_mode()
+        if loop_mode == LoopMode.SINGLE:
+            footer_parts.append("🔂 Loop: Single")
+        elif loop_mode == LoopMode.ALL:
+            footer_parts.append("🔁 Loop: All")
+        
+        if footer_parts:
+            embed.set_footer(text=" | ".join(footer_parts))
         
         await ctx.send(embed=embed)
     
     @commands.command(name="del")
     async def delete(self, ctx, position: int):
-        """Delete song at position (1-indexed)"""
         if position < 1 or position > len(self.queue.songs):
             await ctx.send("❌ Invalid position!")
             return
         
         removed = self.queue.remove(position - 1)
         if removed:
-            await ctx.send(f"❌ Removed: **{removed['title']}**")
+            await ctx.send(f"❌ Removed: **{removed['title']}** (was position #{position})")
         else:
             await ctx.send("❌ Could not remove song")
     
     @commands.command()
     async def shuffle(self, ctx):
-        """Shuffle the queue"""
         if len(self.queue.songs) <= 1:
             await ctx.send("❌ Not enough songs to shuffle!")
             return
@@ -260,22 +292,52 @@ class MusicCog(commands.Cog):
         await ctx.send("🔀 Queue shuffled!")
     
     @commands.command()
+    async def unshuffle(self, ctx):
+        if not self.queue.is_shuffled:
+            await ctx.send("❌ Queue is not shuffled!")
+            return
+        
+        self.queue.unshuffle()
+        await ctx.send("↩️ Queue restored to original order!")
+    
+    @commands.group(invoke_without_command=True)
     async def loop(self, ctx):
-        """Toggle loop mode"""
-        is_looping = self.queue.toggle_loop()
-        status = "**ON**" if is_looping else "**OFF**"
-        await ctx.send(f"🔁 Loop: {status}")
+        new_mode = self.queue.cycle_loop_mode()
+        
+        if new_mode == LoopMode.SINGLE:
+            await ctx.send("🔂 Loop Single: **ON**")
+        elif new_mode == LoopMode.ALL:
+            await ctx.send("🔁 Loop All: **ON**")
+        else:
+            await ctx.send("🔁 Loop: **OFF**")
+    
+    @loop.command(name='single')
+    async def loop_single(self, ctx):
+        self.queue.set_loop_mode(LoopMode.SINGLE)
+        await ctx.send("🔂 Loop Single: **ON**")
+    
+    @loop.command(name='all')
+    async def loop_all(self, ctx):
+        self.queue.set_loop_mode(LoopMode.ALL)
+        await ctx.send("🔁 Loop All: **ON**")
+    
+    @loop.command(name='off')
+    async def loop_off(self, ctx):
+        self.queue.set_loop_mode(LoopMode.OFF)
+        await ctx.send("🔁 Loop: **OFF**")
     
     @commands.command()
     async def clear(self, ctx):
-        """Clear the entire queue"""
         self.queue.clear()
         
         if ctx.voice_client and ctx.voice_client.is_playing():
             ctx.voice_client.stop()
         
         await ctx.send("🗑️ Queue cleared!")
+    
+    @commands.command()
+    async def delall(self, ctx):
+        await self.clear(ctx)
 
 async def setup(bot):
-    """Load the cog"""
     await bot.add_cog(MusicCog(bot))
