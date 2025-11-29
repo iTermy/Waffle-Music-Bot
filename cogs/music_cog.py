@@ -206,7 +206,7 @@ class MusicCog(commands.Cog):
             if loop_mode == LoopMode.SINGLE:
                 await ctx.send("⏭️ Skipped (song will repeat due to loop single)")
             elif loop_mode == LoopMode.ALL:
-                await ctx.send("⏭️ Skipped (song moved to end of queue)")
+                await ctx.send("⏭️ Skipped and moved to end of playlist")
             else:
                 await ctx.send("⏭️ Skipped")
         else:
@@ -221,12 +221,75 @@ class MusicCog(commands.Cog):
         current_idx, total = self.queue.get_position()
         all_songs = self.queue.get_all()
         
+        # Calculate total pages (10 songs per page after the "Now Playing" section)
+        # Page 1 shows: Now Playing + next 10 songs
+        # Page 2+ shows: 10 songs each
+        songs_after_current = total - (current_idx + 1)
+        
+        if songs_after_current <= 10:
+            # No pagination needed - single page
+            embed = self._create_queue_page(all_songs, current_idx, 0, 1)
+            await ctx.send(embed=embed)
+            return
+        
+        # Calculate total pages
+        total_pages = (songs_after_current + 9) // 10  # Ceiling division
+        current_page = 0
+        
+        # Create and send initial page
+        embed = self._create_queue_page(all_songs, current_idx, current_page, total_pages)
+        message = await ctx.send(embed=embed)
+        
+        # Add reaction buttons
+        await message.add_reaction('⬅️')
+        await message.add_reaction('➡️')
+        
+        # Reaction check function
+        def check(reaction, user):
+            return (
+                user == ctx.author and
+                reaction.message.id == message.id and
+                str(reaction.emoji) in ['⬅️', '➡️']
+            )
+        
+        # Pagination loop
+        while True:
+            try:
+                reaction, user = await self.bot.wait_for('reaction_add', timeout=60.0, check=check)
+                
+                # Handle navigation
+                if str(reaction.emoji) == '➡️' and current_page < total_pages - 1:
+                    current_page += 1
+                elif str(reaction.emoji) == '⬅️' and current_page > 0:
+                    current_page -= 1
+                
+                # Update embed
+                embed = self._create_queue_page(all_songs, current_idx, current_page, total_pages)
+                await message.edit(embed=embed)
+                
+                # Remove user's reaction
+                try:
+                    await message.remove_reaction(reaction, user)
+                except discord.errors.Forbidden:
+                    pass  # Bot doesn't have permission to remove reactions
+                
+            except asyncio.TimeoutError:
+                # Timeout reached - clear reactions
+                try:
+                    await message.clear_reactions()
+                except discord.errors.Forbidden:
+                    pass  # Bot doesn't have permission to clear reactions
+                break
+    
+    def _create_queue_page(self, all_songs, current_idx, page, total_pages):
+        """Create an embed for a specific page of the queue"""
         embed = discord.Embed(
             title="🎵 Music Queue",
             color=discord.Color.blue()
         )
         
-        if current_idx < len(all_songs):
+        # Always show "Now Playing" on page 1
+        if page == 0 and current_idx < len(all_songs):
             current_song = all_songs[current_idx]
             embed.add_field(
                 name="▶️ Now Playing",
@@ -234,31 +297,38 @@ class MusicCog(commands.Cog):
                 inline=False
             )
         
-        next_songs = []
-        next_positions = []
+        # Calculate which songs to show on this page
+        if page == 0:
+            # Page 1: Show next 10 songs after current
+            start_idx = current_idx + 1
+            end_idx = min(start_idx + 10, len(all_songs))
+        else:
+            # Page 2+: Show 10 songs per page
+            start_idx = current_idx + 1 + (page * 10)
+            end_idx = min(start_idx + 10, len(all_songs))
         
-        start_idx = current_idx + 1
-        for i in range(start_idx, min(start_idx + 10, len(all_songs))):
-            next_songs.append(all_songs[i])
-            next_positions.append(i + 1)
-        
-        if next_songs:
+        # Build the song list for this page
+        if start_idx < len(all_songs):
             queue_text = ""
-            for pos, song in zip(next_positions, next_songs):
-                queue_text += f"**{pos}.** {song['title']}\n"
+            for i in range(start_idx, end_idx):
+                song = all_songs[i]
+                queue_text += f"**{i + 1}.** {song['title']}\n"
             
-            embed.add_field(
-                name="⏭️ Up Next",
-                value=queue_text,
-                inline=False
-            )
+            if queue_text:
+                embed.add_field(
+                    name="⏭️ Up Next" if page == 0 else f"⏭️ Queue (continued)",
+                    value=queue_text,
+                    inline=False
+                )
         
+        # Build footer
         footer_parts = []
         
-        remaining = total - (current_idx + 1)
-        if remaining > 10:
-            footer_parts.append(f"... and {remaining - 10} more songs")
+        # Add page indicator if multiple pages
+        if total_pages > 1:
+            footer_parts.append(f"Page {page + 1} of {total_pages}")
         
+        # Add loop mode indicator
         loop_mode = self.queue.get_loop_mode()
         if loop_mode == LoopMode.SINGLE:
             footer_parts.append("🔂 Loop: Single")
@@ -268,7 +338,7 @@ class MusicCog(commands.Cog):
         if footer_parts:
             embed.set_footer(text=" | ".join(footer_parts))
         
-        await ctx.send(embed=embed)
+        return embed
     
     @commands.command(name="del")
     async def delete(self, ctx, position: int):
